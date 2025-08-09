@@ -33,6 +33,7 @@
 \usetikzlibrary{shapes,arrows,positioning,fit}
 
 \title{SEED Labs – Slow HTTP/TCP DDoS Attack and Mitigation Lab}
+\subtitle{Student Implementation Version}
 \author{Idan Kestenboum \and Shachar Gabbay}
 \date{\today}
 
@@ -41,7 +42,7 @@
 \maketitle
 
 \begin{abstract}
-This lab demonstrates slow HTTP/TCP DDoS attacks and their mitigation using HAProxy. Students will learn about slow POST attacks, understand how it can exhaust server resources, and implement protection mechanisms using path-based bypass rules and IP-based throttling with stick tables. The lab provides hands-on experience with real attack scenarios and defense strategies in a controlled environment.
+This lab demonstrates slow HTTP/TCP DDoS attacks and their mitigation using HAProxy. Students will learn about slow POST attacks, understand how it can exhaust server resources, and implement protection mechanisms using path-based bypass rules and IP-based throttling with stick tables. This version requires students to complete two simple implementation tasks to demonstrate their understanding of the key concepts.
 \end{abstract}
 
 \tableofcontents
@@ -58,6 +59,7 @@ By completing this lab, students will be able to:
     \item Configure path-based bypass rules for testing and monitoring
     \item Design and test IP-based throttling strategies
     \item Evaluate the effectiveness of DDoS mitigation techniques
+    \item Complete hands-on coding tasks to demonstrate practical understanding
 \end{itemize}
 
 \subsection{Prerequisites}
@@ -66,6 +68,7 @@ By completing this lab, students will be able to:
     \item Familiarity with Docker and containerization
     \item Knowledge of networking concepts (IP addresses, ports, connections)
     \item Basic Linux command-line experience
+    \item Basic Python programming knowledge
 \end{itemize}
 
 \subsection{Lab Environment}
@@ -119,6 +122,8 @@ HAProxy (High Availability Proxy) is a free, very fast and reliable solution off
 Key features of HAProxy include:
 \begin{itemize}
     \item \textbf{Load Balancing}: Distributes incoming requests across multiple backend servers
+    \item \textbf{Health Checking}: Monitors backend server health and automatically removes failed servers
+    \item \textbf{SSL Termination}: Handles SSL/TLS encryption and decryption
     \item \textbf{Rate Limiting}: Controls request rates to prevent abuse
     \item \textbf{Stick Tables}: Tracks client behavior for advanced traffic management
     \item \textbf{ACLs}: Access Control Lists for making routing decisions based on various criteria
@@ -126,6 +131,22 @@ Key features of HAProxy include:
 
 \subsubsection{Stick Tables}
 Stick tables are HAProxy's mechanism for tracking client behavior across multiple connections. They act as in-memory databases that store information about clients (typically identified by IP address) and their associated metrics.
+
+\textbf{Key Concepts:}
+\begin{itemize}
+    \item \textbf{Type}: IP-based tracking (can also track other identifiers like user-agent, cookie, etc.)
+    \item \textbf{Size}: Configurable table size (e.g., 100k entries) - when full, oldest entries are evicted
+    \item \textbf{Expiration}: Automatic cleanup after specified time (e.g., 10 minutes)
+    \item \textbf{Storage}: Various metrics like connection rate, request rate, bytes transferred, etc.
+\end{itemize}
+
+\textbf{Common Stick Table Store Options:}
+\begin{itemize}
+    \item \texttt{conn\_rate(10s)}: Number of connections per 10 seconds
+    \item \texttt{req\_rate(10s)}: Number of requests per 10 seconds
+    \item \texttt{bytes\_in\_rate(10s)}: Bytes received per 10 seconds
+    \item \texttt{bytes\_out\_rate(10s)}: Bytes sent per 10 seconds
+\end{itemize}
 
 \textbf{Example Configuration:}
 \begin{lstlisting}[language=bash]
@@ -141,7 +162,9 @@ Access Control Lists (ACLs) are HAProxy's primary mechanism for making routing d
 \begin{itemize}
     \item \textbf{Path-based ACLs}: Match URL paths (e.g., \texttt{path\_beg /bypass})
     \item \textbf{IP-based ACLs}: Match source IP addresses (e.g., \texttt{src 192.168.1.0/24})
-
+    \item \textbf{Rate-based ACLs}: Match based on stick table data (e.g., \texttt{src\_conn\_rate(abuse\_tracker) gt 20})
+    \item \textbf{Header-based ACLs}: Match HTTP headers (e.g., \texttt{hdr(User-Agent) -i bot})
+    \item \textbf{Method-based ACLs}: Match HTTP methods (e.g., \texttt{method POST})
 \end{itemize}
 
 \textbf{ACL Usage Examples:}
@@ -156,6 +179,17 @@ use_backend reserve_backend if !abusive_ip
 use_backend main_backend if abusive_ip
 \end{lstlisting}
 
+\textbf{ACL Operators:}
+\begin{itemize}
+    \item \texttt{eq}: Equal to
+    \item \texttt{gt}: Greater than
+    \item \texttt{lt}: Less than
+    \item \texttt{beg}: Begins with
+    \item \texttt{end}: Ends with
+    \item \texttt{sub}: Contains substring
+    \item \texttt{reg}: Regular expression match
+\end{itemize}
+
 \subsubsection{Integration of Stick Tables and ACLs}
 The power of HAProxy's protection mechanisms comes from combining stick tables and ACLs:
 
@@ -164,6 +198,27 @@ The power of HAProxy's protection mechanisms comes from combining stick tables a
     \item \textbf{Evaluation}: ACLs evaluate conditions based on stick table data
     \item \textbf{Action}: Routing decisions are made based on ACL evaluation results
 \end{enumerate}
+
+\textbf{Complete Example:}
+\begin{lstlisting}[language=bash]
+# 1. Define stick table for tracking
+backend abuse_tracker
+    stick-table type ip size 100k expire 10m store conn_rate(10s)
+
+# 2. Track connections in frontend
+frontend http-in
+    bind *:8081
+    
+    # Track client IP in stick table
+    tcp-request connection track-sc0 src table abuse_tracker
+    
+    # Define ACL for abusive behavior
+    acl abusive_ip src_conn_rate(abuse_tracker) gt 20
+    
+    # Route based on ACL evaluation
+    use_backend reserve_backend if !abusive_ip
+    use_backend main_backend if abusive_ip
+\end{lstlisting}
 
 This integration allows HAProxy to:
 \begin{itemize}
@@ -180,7 +235,7 @@ This integration allows HAProxy to:
 \subsubsection{Step 1: Clone and Navigate}
 \begin{lstlisting}[language=bash]
 # Navigate to the lab directory
-cd ddos-lab
+cd seed-proxy-lab
 
 # Verify the structure
 ls -la
@@ -233,6 +288,99 @@ curl http://localhost:8081
 \label{fig:topology}
 \end{figure}
 
+\section{Implementation Tasks}
+
+\subsection{Task 1: HAProxy Configuration Implementation}
+
+In this task, you will implement two key components of the HAProxy configuration. Open the file \texttt{seed-proxy-lab/haproxy/haproxy.cfg} and complete the following tasks:
+
+\subsubsection{Task 1.1: Define Stick Table}
+Complete the stick table configuration in the \texttt{abuse\_tracker} backend:
+
+\begin{lstlisting}[language=bash, caption=HAProxy Configuration - Task 1.1]
+# TODO: Task 1 - Define stick table for tracking abusive IPs
+# Complete the stick table configuration below:
+# - Type should be 'ip' for IP-based tracking
+# - Size should be 100k entries
+# - Expire after 10 minutes
+# - Store connection rate over 10 seconds
+backend abuse_tracker
+    # ** FILL HERE **
+    # stick-table type ip size 100k expire 10m store conn_rate(10s)
+\end{lstlisting}
+
+\textbf{Requirements:}
+\begin{itemize}
+    \item Type: \texttt{ip} for IP-based tracking
+    \item Size: \texttt{100k} entries
+    \item Expiration: \texttt{10m} (10 minutes)
+    \item Storage: \texttt{conn\_rate(10s)} (connection rate over 10 seconds)
+\end{itemize}
+
+\subsubsection{Task 1.2: Define ACL for Abusive IPs}
+Create ACL to identify abusive IPs:
+
+\begin{lstlisting}[language=bash, caption=HAProxy Configuration - Task 1.2]
+# TODO: Task 2 - Define ACL for abusive IPs
+# Create an ACL that identifies IPs with more than 20 connections in 10 seconds
+# ** FILL HERE **
+# acl abusive_ip src_conn_rate(abuse_tracker) gt 20
+\end{lstlisting}
+
+\textbf{Requirements:}
+\begin{itemize}
+    \item Create ACL named \texttt{abusive\_ip}
+    \item Check if connection rate from stick table is greater than 20
+    \item Use \texttt{src\_conn\_rate(abuse\_tracker) gt 20}
+\end{itemize}
+
+\subsection{Task 2: Attack Script Implementation}
+
+In this task, you will implement two key components of the slow POST attack script. Open the file \texttt{seed-proxy-lab/attacker/slow\_post\_threads.py} and complete the following tasks:
+
+\subsubsection{Task 2.1: Implement Target Selection}
+Complete the target host and port selection logic:
+
+\begin{lstlisting}[language=python, caption=Attack Script - Task 2.1]
+# TODO: Task 1 - Implement target host and port selection
+# Complete the logic to set the correct host and port based on the target argument
+# - If target is "proxy", use "haproxy" as host and 8081 as port
+# - If target is "direct", use "nginx-server" as host and 80 as port
+# ** FILL HERE **
+if target == "proxy":
+    # ** FILL HERE **
+    pass
+else:
+    # ** FILL HERE **
+    pass
+\end{lstlisting}
+
+\textbf{Requirements:}
+\begin{itemize}
+    \item If \texttt{target} is \texttt{"proxy"}: set \texttt{host = "haproxy"} and \texttt{port = 8081}
+    \item If \texttt{target} is \texttt{"direct"}: set \texttt{host = "nginx-server"} and \texttt{port = 80}
+\end{itemize}
+
+\subsubsection{Task 2.2: Implement Slow Data Transmission}
+Complete the slow data transmission logic:
+
+\begin{lstlisting}[language=python, caption=Attack Script - Task 2.2]
+# TODO: Task 2 - Implement slow data transmission
+# Send data slowly to keep the connection open
+# Send one byte at a time with a 0.05 second delay between sends
+# ** FILL HERE **
+while True:
+    # ** FILL HERE **
+    pass
+\end{lstlisting}
+
+\textbf{Requirements:}
+\begin{itemize}
+    \item Send one byte (\texttt{b"A"}) at a time
+    \item Sleep for 0.05 seconds between sends
+    \item Continue indefinitely to keep connection open
+\end{itemize}
+
 \section{Phase 1: Direct DDoS Attack}
 
 \subsection{Objective}
@@ -282,7 +430,7 @@ python3 slow_post_threads.py direct protected
 \begin{lstlisting}[language=bash]
 # In the nginx container, monitor connections
 watch -n 1 "netstat -an | grep :80 | wc -l"
-
+\end{lstlisting}
 
 \subsubsection{Step 4: Test Legitimate User Access}
 \begin{lstlisting}[language=bash]
@@ -424,7 +572,6 @@ docker logs -f haproxy | grep -E "(abusive_ip|reserve_backend|main_backend)"
 docker exec -it nginx-server netstat -an | grep :80 | wc -l
 \end{lstlisting}
 
-
 \subsection{Attack scenarios Overview}
 
 \subsubsection{Direct Attack (Phase 1)}
@@ -482,46 +629,78 @@ The HAProxy-based protection mechanisms demonstrated in this lab are widely used
     \item \textbf{Load Distribution:} Balance load across multiple data centers
 \end{itemize}
 
-
 \subsection{Conclusion}
 The concepts learned in this lab provide a foundation for understanding real-world proxy and load balancing implementations. The HAProxy configuration and protection mechanisms demonstrated here are directly applicable to production environments, where they help ensure high availability, security, and performance for web applications and services.
+
+\section{Testing Your Implementation}
+
+\subsection{Step 1: Verify HAProxy Configuration}
+\begin{lstlisting}[language=bash]
+# Check HAProxy configuration syntax
+docker exec -it haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+
+# If successful, restart HAProxy
+docker-compose restart haproxy
+\end{lstlisting}
+
+\subsection{Step 2: Test Attack Script}
+\begin{lstlisting}[language=bash]
+# Access attacker container
+docker exec -it attacker bash
+
+# Test the attack script
+python3 slow_post_threads.py proxy protected
+\end{lstlisting}
+
+\subsection{Step 3: Verify Protection}
+\begin{lstlisting}[language=bash]
+# Access user container
+docker exec -it user sh
+
+# Test legitimate access during attack
+curl -s http://haproxy:8081/
+\end{lstlisting}
+
+\section{Evaluation Criteria}
+
+\subsection{Implementation Tasks (60\%)}
+\begin{itemize}
+    \item \textbf{HAProxy Configuration (30\%)}: Correct implementation of stick table and ACL
+    \item \textbf{Attack Script (30\%)}: Correct implementation of target selection and slow data transmission
+\end{itemize}
+
+\subsection{Testing and Validation (40\%)}
+\begin{itemize}
+    \item \textbf{Configuration Validation (20\%)}: HAProxy configuration compiles and runs without errors
+    \item \textbf{Attack Effectiveness (20\%)}: Attack script successfully demonstrates DDoS and protection mechanisms
+\end{itemize}
 
 \section{Submission Requirements}
 
 \subsection{Required Deliverables}
-
-\subsubsection{1. Lab Report}
-Submit a comprehensive report including:
 \begin{itemize}
-    \item Executive summary of findings
-    \item Detailed analysis of attack effectiveness
-    \item Evaluation of protection mechanisms
-    \item Performance comparison tables
-    \item Recommendations for improvement
+    \item Completed \texttt{haproxy.cfg} file with all TODO tasks implemented
+    \item Completed \texttt{slow\_post\_threads.py} file with all TODO tasks implemented
+    \item Screenshots showing successful compilation and testing
+    \item Brief report explaining your implementation choices
 \end{itemize}
 
-\subsubsection{2. Configuration Files}
-\begin{itemize}
-    \item HAProxy configuration with annotations
-    \item Docker Compose file modifications (if any)
-    \item Attack script modifications (if any)
-\end{itemize}
-
-\subsubsection{3. Evidence and Screenshots}
-\begin{itemize}
-    \item Screenshots of attack execution
-    \item HAProxy logs showing protection in action
-    \item Performance monitoring results
-    \item Network topology verification
-\end{itemize}
+\subsection{Submission Format}
+Submit the following files:
+\begin{enumerate}
+    \item \texttt{haproxy.cfg} - Your completed HAProxy configuration
+    \item \texttt{slow\_post\_threads.py} - Your completed attack script
+    \item \texttt{implementation\_report.pdf} - Brief report (1-2 pages) explaining your implementation
+    \item Screenshots of successful testing (as separate image files)
+\end{enumerate}
 
 \section{References}
 
 \begin{enumerate}
     \item HAProxy Documentation: \url{https://www.haproxy.org/download/2.6/doc/intro.txt}
-    \item Slowpost Attack: \url{https://www.cloudflare.com/learning/ddos/ddos-low-and-slow-attack/}
+    \item SEED Labs: \url{https://seedsecuritylabs.org}
+    \item Slowloris Attack: \url{https://en.wikipedia.org/wiki/Slowloris_(computer_security)}
     \item DDoS Protection Strategies: \url{https://www.cloudflare.com/learning/ddos/}
 \end{enumerate}
-
 
 \end{document}
