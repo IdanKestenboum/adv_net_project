@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  nginx-server:
+    build:
+      context: .
+      dockerfile: nginx-server.Dockerfile
+    container_name: nginx-server
+    networks:
+      - ddos-net
+    ports:
+      - "8080:80"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+  haproxy:
+    build:
+      context: ./haproxy
+    container_name: haproxy
+    ports:
+      - "8081:8081"
+    networks:
+      - ddos-net
+
+  attacker:
+    build:
+      context: ./attacker
+    container_name: attacker
+    networks:
+      - ddos-net
+    tty: true
+
+  user:
+    build:
+      context: ./user
+    container_name: user
+    networks:
+      - ddos-net
+    tty: true
+
+networks:
+  ddos-net:
+    driver: bridge
