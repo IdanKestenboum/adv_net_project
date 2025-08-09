@@ -6,6 +6,5 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY slow_post_threads.py .
-COPY slowloris.py .
 
 CMD ["/bin/bash"]
